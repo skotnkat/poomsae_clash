@@ -3,6 +3,11 @@ from collections import Counter
 import pandas as pd
 import numpy as np
 import streamlit as st
+import io
+import os
+import tarfile
+import gzip
+from cryptography.fernet import Fernet
 
 
 from draw_poomsae import process_athletes
@@ -23,6 +28,36 @@ DRAW_INT_COLS = [
     "first_poomsae",
     "second_poomsae",
 ]
+
+
+@st.cache_resource
+def prepare_data_dir() -> str:
+    """Decrypts the encrypted tar.gz once per process and extracts to /tmp/data."""
+    ARCHIVE_PATH = "secure/data.tar.gz.enc"  # tracked in git (encrypted)
+    EXTRACT_DIR = "/tmp/data"  # ephemeral runtime location
+
+    # 1) Read encrypted blob from repo
+    with open(ARCHIVE_PATH, "rb") as f:
+        enc = f.read()
+
+    # 2) Decrypt
+    key_b64 = (
+        st.secrets["FERNET_KEY"].encode()
+        if isinstance(st.secrets["FERNET_KEY"], str)
+        else st.secrets["FERNET_KEY"]
+    )
+    f = Fernet(key_b64)
+    tar_gz_bytes = f.decrypt(enc)
+
+    # 3) Extract to /tmp/data
+    os.makedirs(EXTRACT_DIR, exist_ok=True)
+    with gzip.GzipFile(fileobj=io.BytesIO(tar_gz_bytes), mode="rb") as gz:
+        with tarfile.open(fileobj=gz, mode="r:*") as tar:
+            tar.extractall(
+                path="/tmp"
+            )  # archive root is "data/", so it lands at /tmp/data
+
+    return EXTRACT_DIR
 
 
 def read_csv(csv_path: str, int_cols: List[str] = []) -> pd.DataFrame:
@@ -80,8 +115,24 @@ def get_categories_mapping(
 
     mapping = {}
     all_athletes = []
+
+    # Get the base directory from categories_csv_path (e.g., /tmp/data)
+    import os
+
+    base_dir = os.path.dirname(categories_csv_path)
+
     for _, row in df.iterrows():
         categ_name, athletes_file, draw_file = row
+
+        # Convert relative paths to absolute paths based on base_dir
+        # If path starts with "data/", replace it with base_dir
+        if athletes_file.startswith("data/"):
+            athletes_file = os.path.join(
+                base_dir, athletes_file.replace("data/", "", 1)
+            )
+        if draw_file.startswith("data/"):
+            draw_file = os.path.join(base_dir, draw_file.replace("data/", "", 1))
+
         draw_info = read_csv(draw_file, int_cols=DRAW_INT_COLS)
         athletes_info = read_csv(athletes_file, int_cols=ATHLETE_INT_COLS)
         athletes = process_athletes(athletes_info)

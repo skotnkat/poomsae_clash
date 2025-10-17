@@ -8,7 +8,10 @@ import css_utility
 st.set_page_config(page_title="Poomsae Clash", layout="wide")
 css_utility.set_css("overview")
 
-CATEGORIES_CSV = "data/categories.csv"
+# Prepare decrypted data directory
+data_dir = utility.prepare_data_dir()
+
+CATEGORIES_CSV = data_dir + "/categories.csv"
 
 # ---- UI ----
 st.title("🥋 Poomsae Clash: Overview")
